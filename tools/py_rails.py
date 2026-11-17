@@ -53,6 +53,7 @@ RULES: dict[str, Rule] = {
     "PYR006": Rule("PYR006", "P3", "Maintainability", "Function body is only 'pass'", "Remove the dead stub or implement it; callers may silently do nothing."),
     "PYR007": Rule("PYR007", "P3", "Maintainability", "Identical zero-argument call repeated in the same block", "Confirm the repeat is intended; repeated pipeline steps redo work or write twice."),
     "PYR008": Rule("PYR008", "P3", "Python process", "Growing a list inside a while loop may accumulate without a bound", "Bound the loop and the accumulated size, or process/write per chunk."),
+    "PYR009": Rule("PYR009", "P2", "Control flow", "Control leaves finally and can discard a pending exception or return value", "Verify the exceptional path. Keep cleanup in finally and move the intended control transfer outside it."),
     "DBR001": Rule("DBR001", "P2", "Spark driver", "collect() may materialize a distributed result on the driver", "Prove row/byte budget; favor distributed transforms and writes over unbounded collection."),
     "DBR002": Rule("DBR002", "P2", "Spark driver / Python process", "DataFrame-to-pandas conversion may create a large local dataset", "Prove result size; prefer distributed transformations or bounded data when needed."),
     "DBR003": Rule("DBR003", "P2", "Spark executor / shuffle", "Single output partition can create an oversized task", "Avoid forcing one partition unless workload and correctness requirements justify it."),
@@ -159,6 +160,26 @@ class RiskVisitor(ast.NodeVisitor):
         if not self.is_databricks and not self.spark_noted and (module or "").split(".")[0] == "pyspark":
             self.spark_noted = True
             self.add("PYR004", node)
+
+    def _visit_cleanup_exit(self, node: ast.Return | ast.Break | ast.Continue) -> None:
+        child: ast.AST = node
+        while (parent := self.parents.get(id(child))) is not None:
+            if isinstance(parent, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                break
+            if isinstance(node, (ast.Break, ast.Continue)) and isinstance(
+                parent, (ast.For, ast.AsyncFor, ast.While)
+            ) and child in parent.body:
+                # A loop inside cleanup handles its own break or continue.
+                break
+            if child in getattr(parent, "finalbody", ()):
+                self.add("PYR009", node)
+                break
+            child = parent
+        self.generic_visit(node)
+
+    visit_Return = _visit_cleanup_exit
+    visit_Break = _visit_cleanup_exit
+    visit_Continue = _visit_cleanup_exit
 
     def visit_Import(self, node: ast.Import) -> Any:
         for alias in node.names:

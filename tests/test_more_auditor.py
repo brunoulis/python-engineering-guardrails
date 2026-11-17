@@ -19,6 +19,40 @@ class AdditionalRiskTests(unittest.TestCase):
             result = subprocess.run(cmd, capture_output=True, text=True, check=False)
             return result, root
 
+    def test_control_flow_leaving_finally(self):
+        source = """def run(items):
+    for item in items:
+        try:
+            work(item)
+        finally:
+            if item == 1:
+                return item
+            if item == 2:
+                continue
+            break
+"""
+        result, _ = self.run_scan(source)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        findings = json.loads(result.stdout)["findings"]
+        self.assertEqual([f["line"] for f in findings if f["rule_id"] == "PYR009"], [7, 9, 10])
+
+    def test_control_flow_local_to_cleanup(self):
+        source = """def run(items):
+    try:
+        return work()
+    finally:
+        def cleanup():
+            return 1
+        for item in items:
+            if item:
+                break
+            continue
+        cleanup()
+"""
+        result, _ = self.run_scan(source)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(any(f["rule_id"] == "PYR009" for f in json.loads(result.stdout)["findings"]))
+
     def test_bounded_input_does_not_escape_as_runtime_measurement(self):
         result, _ = self.run_scan("with open('data') as f:\n    text = f.read()\n")
         self.assertEqual(result.returncode, 0, result.stderr)

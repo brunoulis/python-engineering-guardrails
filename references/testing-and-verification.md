@@ -25,3 +25,5 @@
 ## CI safety
 
 Auditor itself only reads files. `--write-baseline` or `--output` writes to an explicit report path, which should not be inside the audited project unless the caller authorizes it. SARIF/JSON are for triage and annotations; runtime tests still matter.
+
+The optional AST auditor reports `PYR009` when `return`, `break` or `continue` exits a `finally` block. Exercise a failing try body to check whether cleanup replaces a pending exception or result. Transfers confined to nested functions or inner loops have their own targets.
