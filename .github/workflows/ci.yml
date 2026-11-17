@@ -1,0 +1,24 @@
+name: ci
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  offline-tests:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Compile auditor and examples
+        run: python -m compileall -q tools tests examples
+      - name: Offline unit tests (no Azure connection)
+        run: python -m unittest discover -s tests -v
+      - name: General Python audit (heuristics only)
+        run: python tools/py_rails.py audit tools --profile python-general
