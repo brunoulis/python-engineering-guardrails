@@ -19,17 +19,11 @@ metadata:
 
 # Python engineering guardrails
 
-For a local change, inspect the supported Python versions, callers and tests. Identify when validation, resource acquisition, iteration and cleanup occur. Preserve the caller's ownership and error behavior. Exercise observable success and failure paths. For memory-sensitive work distinguish retained data, transient allocations and external resources.
+Use the project's Python versions and callers. Trace validation, iteration, resource ownership and cleanup on failure. Test public guarantees; assert timing, identity or internal calls only when required. For optimizations, compare results and errors with the working version across short update sequences. Measure work at the stated boundary.
 
-Build regression tests from the caller's guarantees. A legal implementation may perform work eagerly or lazily, reuse an object or return an equivalent one. Assert timing, identity and internal call counts only when the contract requires them. Where behavior must survive an optimization, compare public results and errors with the working implementation across several short update sequences. Measure required work at the stated boundary.
-
-- For async cancellation or resource lifetime decisions, consult [async and resources](references/python-async-and-resources.md). For memory claims, use [memory and profiling](references/python-memory-and-profiling.md).
-- For audit, refactor, migration, dependency changes, platform work or an OOM investigation, select the applicable workflow and references in the [engineering guide](engineering-guide.md). Audit the source read-only unless edits are requested.
+Read related source together and expand check output on failure. See [async resource ownership](references/python-async-and-resources.md) or [memory measurements](references/python-memory-and-profiling.md) for the relevant section. For audits, migrations, platform work or wider refactors, select the workflow in the [engineering guide](engineering-guide.md). Audit read-only unless edits are requested. Report behavior, checks and material limits.
 
 ## Mandatory Databricks upstream integration
 
-1. For Databricks-specific advice or changes, verify and load the official `databricks-core` and relevant product skill as described in [Databricks integration](references/databricks-integration.md).
-2. If the required upstream skills are unavailable, **stop the
-   Databricks-specific portion** and explain the missing prerequisite. Continue any independent Python work. Cloud operations require explicit authorization.
-
-For an implementation, state the behavior delivered, checks run and material limitations. For an audit, lead with the finding and its consequence. Answer direct questions at the requested level of detail.
+Load official `databricks-core` and the relevant product skill per [Databricks integration](references/databricks-integration.md). If either is unavailable, **stop the
+   Databricks-specific portion** and explain what is missing. Continue independent Python work. Cloud operations require explicit authorization.
