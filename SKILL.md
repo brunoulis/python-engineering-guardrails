@@ -1,11 +1,8 @@
 ---
 name: python-engineering-guardrails
 description: >-
-  Engineer, audit and refactor Python code with anti-slop guardrails, bounded-memory
-  design, explicit resource ownership, rigorous tests and evidence-driven performance.
-  Use for Python APIs, async services, ETL, Pandas, PySpark and Azure Databricks
-  memory/OOM investigations. Databricks-specific work requires official
-  databricks-agent-skills (databricks-core plus the relevant product skill).
+  Implement, audit and refactor Python APIs, async services and data pipelines. Covers
+  resource ownership, memory profiling, Pandas, PySpark and Azure Databricks.
 license: MIT
 compatibility: >-
   Portable Agent Skills instructions. Optional local auditor: Python 3.10+,
@@ -19,9 +16,9 @@ metadata:
 
 # Python engineering guardrails
 
-Use the project's Python versions and callers. Trace validation, iteration, resource ownership and cleanup on failure. Test public guarantees; assert timing, identity or internal calls only when required. For optimizations, compare results and errors with the working version across short update sequences. Measure work at the stated boundary.
+Use the project's Python versions and callers. Trace validation, iteration, resource ownership and cleanup on failure. Test public guarantees; assert timing, identity or internal calls only when required. For optimizations, compare public results and errors with the previous version across updates. Separate compatibility tests from work-count tests. If initialization can be eager or lazy, both must pass. For a warm-read guarantee, arrange and call the public read once, snapshot counters, repeat the read, then assert the delta. Check each assertion against both allowed strategies before finishing.
 
-Read related source together and expand check output on failure. See [async resource ownership](references/python-async-and-resources.md) or [memory measurements](references/python-memory-and-profiling.md) for the relevant section. For audits, migrations, platform work or wider refactors, select the workflow in the [engineering guide](engineering-guide.md). Audit read-only unless edits are requested. Report behavior, checks and material limits.
+For a local refactor, read the affected implementation, caller and nearest tests together. Reuse those observations for the patch and checks. Keep passing output to counts; retain failure diagnostics. See [async resource ownership](references/python-async-and-resources.md) or [memory measurements](references/python-memory-and-profiling.md) for the relevant section. For wider refactors, use the relevant section of [workflows](modes/WORKFLOWS.md); for audits, migrations or platform work, use the [engineering guide](engineering-guide.md). Audit read-only unless edits are requested. Report behavior, checks and material limits.
 
 ## Mandatory Databricks upstream integration
 
