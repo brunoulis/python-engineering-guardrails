@@ -18,9 +18,15 @@ class SkillStructureTests(unittest.TestCase):
         self.assertLess(len(re.search(r"(?ms)^description: >-\n(.*?)(?=^[^ \n])", frontmatter).group(1)), 1024)
 
     def test_all_documented_skill_reference_paths_exist(self):
-        text = (ROOT / "SKILL.md").read_text(encoding="utf-8")
+        entry = (ROOT / "SKILL.md").read_text(encoding="utf-8")
+        self.assertIn("](engineering-guide.md)", entry)
+        text = entry + "\n" + (ROOT / "engineering-guide.md").read_text(encoding="utf-8")
         referenced = set(re.findall(
             r"`((?:references|modes|profiles|policies|tools)/[^`]+\.(?:md|py))`", text
+        ))
+        referenced.update(re.findall(
+            r"\]\(((?:references|modes|profiles|policies|tools)/[^)#]+\.(?:md|py))(?:#[^)]*)?\)",
+            text,
         ))
         self.assertGreaterEqual(len(referenced), 10)
         for reference in referenced:
