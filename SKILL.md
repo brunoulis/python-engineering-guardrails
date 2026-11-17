@@ -21,6 +21,8 @@ metadata:
 
 For a local change, inspect the supported Python versions, callers and tests. Identify when validation, resource acquisition, iteration and cleanup occur. Preserve the caller's ownership and error behavior. Exercise observable success and failure paths. For memory-sensitive work distinguish retained data, transient allocations and external resources.
 
+Build regression tests from the caller's guarantees. A legal implementation may perform work eagerly or lazily, reuse an object or return an equivalent one. Assert timing, identity and internal call counts only when the contract requires them. Where behavior must survive an optimization, compare public results and errors with the working implementation across several short update sequences. Measure required work at the stated boundary.
+
 - For async cancellation or resource lifetime decisions, consult [async and resources](references/python-async-and-resources.md). For memory claims, use [memory and profiling](references/python-memory-and-profiling.md).
 - For audit, refactor, migration, dependency changes, platform work or an OOM investigation, select the applicable workflow and references in the [engineering guide](engineering-guide.md). Audit the source read-only unless edits are requested.
 
