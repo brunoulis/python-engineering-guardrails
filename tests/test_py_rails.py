@@ -152,6 +152,45 @@ sql = spark.sql('CACHE TABLE foo')
             "--upstream-root", str(self.upstream), "--format", "sarif", "--output", str(report),
         ).returncode, 2)
 
+    def test_gold_style_gaps(self) -> None:
+        self.write("gold.py", """\
+from pyspark.sql import functions as F
+import requests
+
+class G:
+    def stub(self):
+        pass
+
+    def sales(self, spark):
+        out = []
+        i = 0
+        while i < 3:
+            out.append({"a": i})
+            i += 1
+        requests.post("https://x", json={})
+        run_sp("sp", db="prod")
+        return spark.createDataFrame(out)
+
+g = G()
+g.stub()
+g.stub()
+""")
+        data = json.loads(self.audit().stdout)
+        ids = [f["rule_id"] for f in data["findings"]]
+        for expected in ("PYR005", "PYR006", "PYR007", "PYR008", "DBR012"):
+            self.assertIn(expected, ids)
+        self.assertEqual(ids.count("PYR005"), 2)
+        self.assertNotIn("PYR004", ids)
+
+    def test_pyspark_with_python_profile_warns(self) -> None:
+        self.write("etl.py", "from pyspark.sql import functions as F\nimport pyspark\n")
+        data = json.loads(self.run_cli("audit", str(self.src), "--format", "json").stdout)
+        self.assertEqual([f["rule_id"] for f in data["findings"]], ["PYR004"])
+
+    def test_literal_dataframe_and_bounded_loop_not_flagged(self) -> None:
+        self.write("ok.py", "def f(spark, xs):\n    xs.append(1)\n    return spark.createDataFrame([(1,)], ['a'])\n")
+        self.assertEqual(json.loads(self.audit().stdout)["findings"], [])
+
 
 if __name__ == "__main__":
     unittest.main()

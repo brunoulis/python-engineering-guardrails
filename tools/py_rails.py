@@ -48,6 +48,11 @@ RULES: dict[str, Rule] = {
     "PYR001": Rule("PYR001", "P3", "Python process", "fetchall() materializes an entire result set", "Check result size; use bounded fetchmany()/pagination/streaming when appropriate."),
     "PYR002": Rule("PYR002", "P3", "Python process", "Whole-file read may allocate a large buffer", "Check file sizes; consider chunked/streamed processing without buffering the entire output."),
     "PYR003": Rule("PYR003", "P3", "Python process", "create_task() inside a loop may create unbounded in-flight work", "Bound both submitted tasks and active work; confirm loop is already bounded before changing."),
+    "PYR004": Rule("PYR004", "P3", "Audit coverage", "PySpark code scanned with a non-Databricks profile; Spark rules did not run", "Rerun with --profile databricks-classic (or serverless/streaming)."),
+    "PYR005": Rule("PYR005", "P2", "Side effects", "Outbound write or explicit production target", "Confirm idempotency, authorization and a dry-run/non-prod path; keep side effects out of transformation functions."),
+    "PYR006": Rule("PYR006", "P3", "Maintainability", "Function body is only 'pass'", "Remove the dead stub or implement it; callers may silently do nothing."),
+    "PYR007": Rule("PYR007", "P3", "Maintainability", "Identical zero-argument call repeated in the same block", "Confirm the repeat is intended; repeated pipeline steps redo work or write twice."),
+    "PYR008": Rule("PYR008", "P3", "Python process", "Growing a list inside a while loop may accumulate without a bound", "Bound the loop and the accumulated size, or process/write per chunk."),
     "DBR001": Rule("DBR001", "P2", "Spark driver", "collect() may materialize a distributed result on the driver", "Prove row/byte budget; favor distributed transforms and writes over unbounded collection."),
     "DBR002": Rule("DBR002", "P2", "Spark driver / Python process", "DataFrame-to-pandas conversion may create a large local dataset", "Prove result size; prefer distributed transformations or bounded data when needed."),
     "DBR003": Rule("DBR003", "P2", "Spark executor / shuffle", "Single output partition can create an oversized task", "Avoid forcing one partition unless workload and correctness requirements justify it."),
@@ -59,7 +64,9 @@ RULES: dict[str, Rule] = {
     "DBR009": Rule("DBR009", "P2", "Databricks serverless compatibility", "checkpoint() may be unsupported on serverless compute", "Verify current serverless feature support; avoid applying classic compute advice unchanged."),
     "DBR010": Rule("DBR010", "P2", "Databricks serverless compatibility", "SQL/catalog cache operation may be unsupported on serverless", "Check current official support; DataFrame caching preview is a distinct feature."),
     "DBR011": Rule("DBR011", "P3", "Spark execution", "Repeated Spark actions inside a loop may trigger extra distributed jobs", "Check iteration bounds and query plan; prefer one appropriate action when semantics allow."),
+    "DBR012": Rule("DBR012", "P2", "Spark driver", "createDataFrame() from driver-side Python data", "Prove the row budget; read from storage or build the frame with Spark expressions instead of a Python list."),
 }
+PROD_VALUES = {"prod", "production", "prd"}
 
 
 @dataclass
@@ -104,6 +111,17 @@ def _inside_loop(node: ast.AST, parents: dict[int, ast.AST]) -> bool:
     return False
 
 
+def _inside_while(node: ast.AST, parents: dict[int, ast.AST]) -> bool:
+    current = parents.get(id(node))
+    while current is not None:
+        if isinstance(current, ast.While):
+            return True
+        if isinstance(current, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+            return False
+        current = parents.get(id(current))
+    return False
+
+
 class RiskVisitor(ast.NodeVisitor):
     def __init__(self, relative_path: str, source: str, profile: str, tree: ast.AST):
         self.path = relative_path
@@ -111,6 +129,7 @@ class RiskVisitor(ast.NodeVisitor):
         self.profile = profile
         self.is_databricks = profile in DATABRICKS_PROFILES
         self.findings: list[Finding] = []
+        self.spark_noted = False
         self.parents = {
             id(child): parent
             for parent in ast.walk(tree)
@@ -136,6 +155,43 @@ class RiskVisitor(ast.NodeVisitor):
             fingerprint=_fingerprint(self.path, rule_id, snippet),
         ))
 
+    def _note_spark(self, node: ast.AST, module: str | None) -> None:
+        if not self.is_databricks and not self.spark_noted and (module or "").split(".")[0] == "pyspark":
+            self.spark_noted = True
+            self.add("PYR004", node)
+
+    def visit_Import(self, node: ast.Import) -> Any:
+        for alias in node.names:
+            self._note_spark(node, alias.name)
+
+    def visit_ImportFrom(self, node: ast.ImportFrom) -> Any:
+        self._note_spark(node, node.module)
+
+    def _repeated_calls(self, body: list[ast.stmt]) -> None:
+        seen: set[str] = set()
+        for stmt in body:
+            if (isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Call)
+                    and not stmt.value.args and not stmt.value.keywords):
+                key = ast.dump(stmt.value)
+                if key in seen:
+                    self.add("PYR007", stmt)
+                seen.add(key)
+
+    def visit_Module(self, node: ast.Module) -> Any:
+        self._repeated_calls(node.body)
+        self.generic_visit(node)
+
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> Any:
+        body = node.body
+        if body and isinstance(body[0], ast.Expr) and isinstance(body[0].value, ast.Constant) and isinstance(body[0].value.value, str):
+            body = body[1:]
+        if len(body) == 1 and isinstance(body[0], ast.Pass) and not node.decorator_list:
+            self.add("PYR006", node)
+        self._repeated_calls(node.body)
+        self.generic_visit(node)
+
+    visit_AsyncFunctionDef = visit_FunctionDef  # type: ignore[assignment]
+
     def visit_Attribute(self, node: ast.Attribute) -> Any:
         if self.profile == "databricks-serverless":
             if node.attr == "rdd":
@@ -153,8 +209,18 @@ class RiskVisitor(ast.NodeVisitor):
         if (name == "create_task" and isinstance(node.func.value, ast.Name)
                 and node.func.value.id == "asyncio" and _inside_loop(node, self.parents)):
             self.add("PYR003", node)
+        if name in {"append", "extend"} and isinstance(node.func.value, ast.Name) and _inside_while(node, self.parents):
+            self.add("PYR008", node)
+        if (isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Name)
+                and node.func.value.id == "requests" and name in {"post", "put", "patch", "delete"}):
+            self.add("PYR005", node, "P3")
+        elif any(isinstance(k.value, ast.Constant) and isinstance(k.value.value, str)
+                 and k.value.value.lower() in PROD_VALUES for k in node.keywords):
+            self.add("PYR005", node)
 
         if self.is_databricks:
+            if name == "createDataFrame" and node.args and not isinstance(node.args[0], (ast.List, ast.Tuple, ast.Dict)):
+                self.add("DBR012", node)
             if name == "collect":
                 receiver = node.func.value
                 bounded = isinstance(receiver, ast.Call) and _method_name(receiver) == "limit"
